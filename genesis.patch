@@ -1,0 +1,2005 @@
+diff --git a/cm/appfile.h b/cm/appfile.h
+index 65b39d07..043887d9 100644
+--- a/cm/appfile.h
++++ b/cm/appfile.h
+@@ -226,6 +226,7 @@ typedef enum {
+   AppFileDeviceIsLewis        = 106,// Lewis
+   AppFileDeviceIsR580         = 107,// Pickleball
+   AppFileDeviceIsMatrix       = 108,// Matrix
++  AppFileDeviceIsGenesis      = 109,// Genesis
+ 
+   // Add the new receiver type above this line.
+   // And keep them in  numeric order.  The next element must be one
+diff --git a/cm/cm_antenna.c b/cm/cm_antenna.c
+index eefc6b85..f3652ef2 100644
+--- a/cm/cm_antenna.c
++++ b/cm/cm_antenna.c
+@@ -1800,7 +1800,7 @@ static void installVectorAntennaInfo( void )
+   // Handle Dual Antenna Voltage issues.
+  #if defined VULCAN
+     // VULCAN can only output 4.xV on both antennas.
+- #elif defined KRYPTON || defined BCUDA || defined AUGER
++ #elif defined KRYPTON || defined BCUDA || defined AUGER || defined GENESIS
+     // Voltage for vector antenna is always low if antenna is switchable
+  #else
+     #error "DUAL_ANTENNA system needs eDualAntennaVoltage review."
+diff --git a/cm/cm_current_app.c b/cm/cm_current_app.c
+index ecb08bf3..a7e47c15 100644
+--- a/cm/cm_current_app.c
++++ b/cm/cm_current_app.c
+@@ -776,6 +776,12 @@ static AppFileHeader_t cm_makeAppfileHeader( void )
+       break ;
+    #endif // AUGER   
+ 
++   #if defined GENESIS
++    case RECVR_GENESIS:
++      fileHeader.DeviceType = AppFileDeviceIsGenesis;
++      break ;
++   #endif // GENESIS
++
+     default:
+       // This system has an unexpected Receiver Type and thus will
+       // tag its appfile with AppFileDeviceIsAny.
+diff --git a/cm/cm_factory.c b/cm/cm_factory.c
+index 58b2e3a6..095494e3 100644
+--- a/cm/cm_factory.c
++++ b/cm/cm_factory.c
+@@ -3688,6 +3688,10 @@ int factoryConfigInit(void)
+       // We initialize the configuration data to all FF's, which is the
+       // disabled state for most options.
+       memset(&FactoryConfig, 0xFF, sizeof(FactoryConfig)) ;
++      #ifdef GENESIS
++        FactoryConfig.bitOptions1.EnableWebServer  = dEnable ;
++        strcpy( FactoryConfig.ProductName, "GENESIS" ) ;
++      #endif
+       SerialNumber  = 0 ;
+ 
+       // We force the strings to some default value so that when we try
+@@ -4099,6 +4103,7 @@ BOOLEAN SetDefaultsForICTTesting(void)
+   || defined CLARK \
+   || defined LEWIS \
+   || defined PBALL \
++  || defined GENESIS \
+   || defined MATRIX
+   // Add in new products when needed, ICT setup and Srecord:
+   // Tentative list below :
+@@ -9173,6 +9178,9 @@ static struct rxIdToProductNameAndIgsMapping rxProductNameIgsMappings[]
+  #elif defined ALLOY
+   {RECVR_ALLOY /*162*/, "Trimble Alloy", "Alloy"},
+ 
++ #elif defined GENESIS
++  {RECVR_GENESIS /*162*/, "Trimble Genesis", "Genesis"},
++
+  #elif defined VALENCE
+   {RECVR_VALENCE /*1*/, "Trimble VALENCE", "VALENCE"},
+ 
+diff --git a/dataLogger/dl_spaData.c b/dataLogger/dl_spaData.c
+index 1651d754..afc395bb 100755
+--- a/dataLogger/dl_spaData.c
++++ b/dataLogger/dl_spaData.c
+@@ -261,9 +261,13 @@ void dl_log_spa_count( sessionState_t * pSession, BOOLEAN log_wd )
+       spaCount[i] = (U32)SPA.tasks[fe_id];
+     }
+     
++    #if ST_SPLIT_BM_ACROSS_N_CORES
+     spaCount[maxSlotNum - 2] = (U32)SPA.bm[0];
+     spaCount[maxSlotNum - 1] = (U32)SPA.bm[1];
+     #else
++    spaCount[maxSlotNum - 2] = (U32)SPA.bm;
++    #endif
++    #else
+     
+ 
+     // we don't get here unless dl_spa_init is true. It becomes true
+diff --git a/ecos/web/web_system.c b/ecos/web/web_system.c
+index b3b985be..a071ed3f 100644
+--- a/ecos/web/web_system.c
++++ b/ecos/web/web_system.c
+@@ -641,7 +641,6 @@ void http_dyn_agc_data( httpd_state_t *pState )
+             httpd_printf( pState, "</channel>" ) ;
+           } // if (TestModeActive == TRUE)
+         }
+-
+       }
+     }
+ 
+diff --git a/io/io_tc.h b/io/io_tc.h
+index 3d442d2c..4a2e4870 100644
+--- a/io/io_tc.h
++++ b/io/io_tc.h
+@@ -671,6 +671,10 @@ typedef enum Recvr_e {
+   RADIO_TDL900i   = 1072,  // Wampa 900RxOnly Radio, a non-GNSS System.
+ #endif
+ 
++#if defined GENESIS
++  RECVR_GENESIS    = 1073,
++#endif
++
+   //********************************************************************
+   //        Add new receiver types above this comment
+   //        
+diff --git a/io/tx/rtcm3Stream.cpp b/io/tx/rtcm3Stream.cpp
+index 8ef53047..455d4394 100644
+--- a/io/tx/rtcm3Stream.cpp
++++ b/io/tx/rtcm3Stream.cpp
+@@ -2872,6 +2872,7 @@ void Rtcm3Stream::outputRtcmV3( const pm_fix_t *Pos )
+    #endif
+ 
+ 
++#if 0
+     // Send ionospheric scintillation message if scheduled and having valid data
+     if( haveNewIonoScintInfo )
+     {
+@@ -2890,6 +2891,7 @@ void Rtcm3Stream::outputRtcmV3( const pm_fix_t *Pos )
+         }
+       }
+     }
++#endif
+ 
+     // Send antenna information.
+     if ( mDoMsg[ Rtcm3Type1007_08 ]
+diff --git a/linux/app/cyg_ppp.c b/linux/app/cyg_ppp.c
+index 7fcb7593..2a3d88f7 100755
+--- a/linux/app/cyg_ppp.c
++++ b/linux/app/cyg_ppp.c
+@@ -118,7 +118,7 @@ static char lte_dns2[64];
+   #define BPRINTF(...)
+ #endif
+ 
+-static int default_route_interface_name[10];
++static char default_route_interface_name[10];
+ 
+ #warning "EVERY INSTANCE OF ecos_rtentry MUST BE CHANGED BACK TO THE STANDARD rtentry STRUCT WHEN INCLUDE FOLDER CLEANUP IS DONE
+ 
+@@ -3242,8 +3242,11 @@ struct ecos_rtentry * get_default_route(U32 *dest_ip,
+   copy_data_from_sockaddr_in(gate_ip, (struct sockaddr_in *)&default_route_ptr->rt_gateway);
+   copy_data_from_sockaddr_in(mask_ip, (struct sockaddr_in *)&default_route_ptr->rt_genmask);
+ 
+-  strcpy(if_name, default_route_ptr->rt_dev);
+-  strcpy(default_route_interface_name, default_route_ptr->rt_dev);
++  if(default_route_ptr->rt_dev)
++  {
++    strcpy(if_name, default_route_ptr->rt_dev);
++    strcpy(default_route_interface_name, default_route_ptr->rt_dev);
++  }
+   *chanId = default_route_ptr->rt_pad2;
+   *flags = default_route_ptr->rt_flags;
+   default_route_ptr->rt_pad3 = 1;
+diff --git a/linux/app/eth_misc.c b/linux/app/eth_misc.c
+index 12f45c0c..f298434c 100755
+--- a/linux/app/eth_misc.c
++++ b/linux/app/eth_misc.c
+@@ -2,7 +2,6 @@
+  * Linux eth_misc.c - includes which conficts with ECOS
+  */
+ 
+-#define _GNU_SOURCE
+ 
+ #include <stdio.h>
+ #include <stdlib.h>
+diff --git a/linux/app/eth_misc.h b/linux/app/eth_misc.h
+index 10f3c490..5b181f61 100755
+--- a/linux/app/eth_misc.h
++++ b/linux/app/eth_misc.h
+@@ -1,37 +1,41 @@
+-#pragma once
+-
+-#include "uap_api.h"
+-#include <stdio.h>
+-#include <stdlib.h>
+-#include <stdbool.h>
+-
+-
+-#define GET_IF_IP_ADDR SIOCGIFADDR
+-#define GET_IF_NETMASK_ADDR SIOCGIFNETMASK
+-#define GET_IF_MTU SIOCGIFMTU
+-
+-char *eth_ip2str(unsigned int ip, char *s);
+-char *eth_mac2str(unsigned char *pb, char *s);
+-void eth_str2mac(unsigned char *pb, char *s);
+-char *get_one_line(char *pstr, char *buf, int max_len);
+-char *set_str_ptr(char *ps, int num);
+-char *get_str_field(char *ps, int num, char *dst, int max_len);
+-int get_int_field(char *ps, int num);
+-char * get_strval_by_name(char *s, const char *name, char *val, int max_len);
+-int get_intval_by_name(char *s, const char *name);
+-int eth_get_gateway(const char *iname, unsigned int *gateway);
+-int eth_get_macaddr(const char *iname, char *mac);
+-int eth_get_dns(const char *iname, unsigned int *dns, int num);
+-int eth_get_onoff(const char *iname );
+-int eth_set_onoff(const char *iname, int onoff );
+-int eth_set_addr(const char *iname, unsigned int ip, unsigned int mask );
+-int eth_clear_addr(const char *iname);
+-int eth_get_addr_in_host_byte_order(const char *iname, unsigned int *ip, unsigned long ioctl_request, unsigned int *mask );
+-int eth_get_addr(const char *iname, unsigned int *ip, unsigned long ioctl_request, unsigned int *mask );
+-bool ethernet_is_up ( void );
+-void eth_misc_init(void);
+-int proc_exec(char *cmd);
+-void trigger_upnp_addr_update(int inf);
+-static BOOLEAN needUpdateInterfaceAddr(int inf);
+-U32 hex_string2int(char *hex_string);
+-U8 uap_get_supported_rates(char *resp, UAP_Module_Config_Status_T *uap_config);
++#pragma once
++
++#ifdef WILINK8_SUPPORT
++#include "uap_api.h"
++#endif
++#include <stdio.h>
++#include <stdlib.h>
++#include <stdbool.h>
++
++
++#define GET_IF_IP_ADDR SIOCGIFADDR
++#define GET_IF_NETMASK_ADDR SIOCGIFNETMASK
++#define GET_IF_MTU SIOCGIFMTU
++
++char *eth_ip2str(unsigned int ip, char *s);
++char *eth_mac2str(unsigned char *pb, char *s);
++void eth_str2mac(unsigned char *pb, char *s);
++char *get_one_line(char *pstr, char *buf, int max_len);
++char *set_str_ptr(char *ps, int num);
++char *get_str_field(char *ps, int num, char *dst, int max_len);
++int get_int_field(char *ps, int num);
++char * get_strval_by_name(char *s, const char *name, char *val, int max_len);
++int get_intval_by_name(char *s, const char *name);
++int eth_get_gateway(const char *iname, unsigned int *gateway);
++int eth_get_macaddr(const char *iname, char *mac);
++int eth_get_dns(const char *iname, unsigned int *dns, int num);
++int eth_get_onoff(const char *iname );
++int eth_set_onoff(const char *iname, int onoff );
++int eth_set_addr(const char *iname, unsigned int ip, unsigned int mask );
++int eth_clear_addr(const char *iname);
++int eth_get_addr_in_host_byte_order(const char *iname, unsigned int *ip, unsigned long ioctl_request, unsigned int *mask );
++int eth_get_addr(const char *iname, unsigned int *ip, unsigned long ioctl_request, unsigned int *mask );
++bool ethernet_is_up ( void );
++void eth_misc_init(void);
++int proc_exec(char *cmd);
++void trigger_upnp_addr_update(int inf);
++static BOOLEAN needUpdateInterfaceAddr(int inf);
++U32 hex_string2int(char *hex_string);
++#ifdef WILINK8_SUPPORT
++U8 uap_get_supported_rates(char *resp, UAP_Module_Config_Status_T *uap_config);
++#endif
+diff --git a/linux/app/fe_stubs.c b/linux/app/fe_stubs.c
+index c6d24708..50286aa2 100755
+--- a/linux/app/fe_stubs.c
++++ b/linux/app/fe_stubs.c
+@@ -182,7 +182,13 @@ void app_lpstop( void ){ fe_sustimeMsecs(50); }
+ void app_st_bbram_initialized( void )
+ {}
+ void app_specific_bt_task_processing( U32 osTick )
+-{}
++{
++  (void) osTick;
++  //int ret = max_rw_test();
++  //printf("max_rw_test %d\n", ret);
++
++}
++
+ void app_specific_bt_task_processing_init( void )
+ {}
+ 
+diff --git a/linux/app/fe_stubs2.c b/linux/app/fe_stubs2.c
+index 094cceae..52da8c3a 100755
+--- a/linux/app/fe_stubs2.c
++++ b/linux/app/fe_stubs2.c
+@@ -647,7 +647,7 @@ U8  st_klob_ion_beidou_get (short sv_id, ION_INFO *x ) { BPRINTF(" st_klob_ion_b
+ void  st_mat_col_mxn (DBL *a, DBL *b, DBL *c, U16 m, U16 n, U16 phys_n) { BPRINTF(" st_mat_col_mxn\n"); return ; }
+ void  st_min_time_get ( MINIMAL_TIME *minimal_time ) { BPRINTF(" st_min_time_get\n"); return ; }
+ void  st_msec_alarm_put ( U32 scount32_alarm ) { BPRINTF(" st_msec_alarm_put\n"); return ; }
+-U8  st_n_active_antenna_get ( void ) { BPRINTF(" st_n_active_antenna_get\n"); return 0; }
++//U8  st_n_active_antenna_get ( void ) { BPRINTF(" st_n_active_antenna_get\n"); return 0; }
+ U8  st_n_active_chans_get ( void ) { BPRINTF(" st_n_active_chans_get\n"); return 0; }
+ void  st_nad_pos_translation ( DBL *from, DBL *to ) { BPRINTF(" st_nad_pos_translation\n"); return ; }
+ void  st_nv_disable (BOOLEAN disable)  { BPRINTF(" st_nv_disable\n"); return ; }
+diff --git a/linux/app/init.c b/linux/app/init.c
+index 8ddc616a..76d0d370 100755
+--- a/linux/app/init.c
++++ b/linux/app/init.c
+@@ -55,8 +55,6 @@ int main(int argc, char *argv[])
+   init_deb();
+   linux_env_init();
+ 
+-  linux_app_startup();
+-
+   while(1)
+   {
+       char s[200];
+diff --git a/linux/app/network_interface_toggle_task.c b/linux/app/network_interface_toggle_task.c
+index 2efd4cc0..90118f14 100755
+--- a/linux/app/network_interface_toggle_task.c
++++ b/linux/app/network_interface_toggle_task.c
+@@ -406,6 +406,7 @@ void register_network_toggle_actions(interface_action_criteria_e criteria,
+ U16 network_interface_toggle_startup(void) 
+ {
+   U16 errors = 0;
++  #if 0
+   register_network_toggle_actions(INTF_CREATE_OR_DESTRUCT, 
+                                   BT_ACTION, 
+                                   handle_bnep0_interface_creation_by_pan_connection);
+@@ -425,6 +426,7 @@ U16 network_interface_toggle_startup(void)
+                             TASK_USTK_ETH_DETECT,
+                             TASK_MSG_ETH_DETECT 
+   );
++  #endif
+   return errors;
+ }
+ 
+@@ -433,9 +435,9 @@ void routing_mutex_init(void){
+ }
+ 
+ void routing_mutex_lock(void){
+-  fe_mutex_lock(routing_mutex_lock);
++  fe_mutex_lock(routing_table_mutex);
+ }
+ 
+ void routing_mutex_unlock(void){
+   fe_mutex_unlock(routing_table_mutex);
+-}
+\ No newline at end of file
++}
+diff --git a/linux/app/ntp_refclk_update.c b/linux/app/ntp_refclk_update.c
+index 5aa7d846..d2e3bb9c 100644
+--- a/linux/app/ntp_refclk_update.c
++++ b/linux/app/ntp_refclk_update.c
+@@ -470,8 +470,6 @@ U32 ntp_startup(void)
+ #endif
+    if( ! PeripheralPresent( eNTPServer ) )
+     return 0;
+-  #warning "CHANGE THIS AFTER IMU/IPIPE TRACING TESTING"
+-  #if 0
+   if( fe_tcreate_name( TASK_ID_NTP_SERVER,
+                        "NTP server",
+                        TASK_PRI_NTP,
+@@ -481,6 +479,5 @@ U32 ntp_startup(void)
+   {
+     app_fatal_error( TASK_ID_NTP_SERVER, ERROR_TASK_INITIALIZATION);
+   }
+-  #endif
+   return 0;
+ }
+diff --git a/linux/app/rules.mk b/linux/app/rules.mk
+index f963fe04..685efeab 100755
+--- a/linux/app/rules.mk
++++ b/linux/app/rules.mk
+@@ -24,11 +24,7 @@ SRCS_$(d) := \
+         fe_wifi.c \
+         fe_errorlog.c \
+         eth_misc.c \
+-        fe_btspp.c \
+-        fe_btmain.c \
+         usb_driver.c \
+-        fe_btinterface.c \
+-        fe_upnp_api.c \
+         ntp_refclk_update.c \
+         network_interface_toggle_task.c \
+         fe_netlink_api.c \
+@@ -38,6 +34,15 @@ SRCS_$(d) := \
+         eCos_feC_spa.c  \
+         fe_stinger_app_hooks.c
+ 
++ifeq ($(USE_BTPS),y)
++  SRCS_$(d) := $(SRCS_$(d)) \
++               fe_btspp.c \
++               fe_btmain.c \
++               fe_btinterface.c \
++               fe_upnp_api.c 
++endif
++
++
+ ifneq ($(USE_RADIO),y)
+   SRCS_$(d) := $(SRCS_$(d)) fe_stubs_radio.c
+ endif
+diff --git a/linux/deb.c b/linux/deb.c
+index daf71c40..db5f3f91 100644
+--- a/linux/deb.c
++++ b/linux/deb.c
+@@ -669,6 +669,7 @@ int deb_cmd_check(void)
+             	get_max_rw_test_speed(1, s, sizeof(s));
+             	printf_l(s);
+             }
++#ifdef BTPS_SUPPORT
+             else if( strncmp(s, "btlk ", 5) == 0 )
+             {
+                 U8 addr[8];
+@@ -676,6 +677,7 @@ int deb_cmd_check(void)
+                 reverse_bd_addr(addr);
+                 save_linkkeys(addr);
+             }
++#endif
+             return 1;
+         }
+     }
+diff --git a/linux/fe_lock.c b/linux/fe_lock.c
+index aa320fb1..535782e9 100644
+--- a/linux/fe_lock.c
++++ b/linux/fe_lock.c
+@@ -68,9 +68,9 @@ void bm_intr_off( void )
+   bm_intr_count++;
+   if(bm_intr_count == 1)
+   {
+-    atomic_set_bits(&int_status, INT_DISABLED);
++    while(is_bm_intr_active());
+     maxwell_intr_enable(FALSE);
+-    while(is_inside_int());
++    atomic_set_bits(&int_status, INT_DISABLED);
+   }
+ #if 0
+   atomic_set_bits(&int_status, INT_DISABLED);
+diff --git a/linux/fe_task.c b/linux/fe_task.c
+index 5bae404a..f7d31d59 100755
+--- a/linux/fe_task.c
++++ b/linux/fe_task.c
+@@ -62,7 +62,6 @@ affinity_set [] =
+ {
+     {TASK_ID_BM,  1, 0},
+     {TASK_ID_BM2, 1, 3},
+-    {TASK_ID_BM3, 1, 2},
+ 
+     {TASK_ID_LM_WAKEUP, 1, 1},
+     {TASK_ID_LM, TASK_ID_BIT-1, 1}, // All Stinger tasks - core 1
+@@ -71,8 +70,10 @@ affinity_set [] =
+     //BT tasks
+     {TASK_ID_BIT, 1, 0},
+     {TASK_ID_BIT_CPU1, 1, 1},
++#if QUADCORE_SUPPORT
+     {TASK_ID_BIT_CPU2, 1, 2},
+     {TASK_ID_BIT_CPU3, 1, 3},
++#endif
+ 
+ #if TITAN_SUPPORT
+     {TASK_ID_PRE_TITAN, 1, 2}, // All Titan tasks - core - 2
+@@ -98,7 +99,9 @@ affinity_set [] =
+     {TASK_ID_RADIO_INT, 1, 3},
+     {TASK_ID_RADIO_TIMER, 1, 3},
+     {TASK_ID_ETH_DETECT, 1, 3},
++#ifdef WLAN_COMMON_SUPPORT
+     {TASK_ID_WLAN_MAIN, 1, 3},
++#endif
+     {TASK_ID_PM, 1, 2},
+     {TASK_ID_PM_POST, 1, 2},
+ #if INS_CAPABLE
+diff --git a/linux/stinger/fe_stubs.c b/linux/stinger/fe_stubs.c
+index 05914a38..f7187971 100755
+--- a/linux/stinger/fe_stubs.c
++++ b/linux/stinger/fe_stubs.c
+@@ -249,7 +249,12 @@ void bt_proc(void)
+ /**********************************************************************/
+ {
+ 
+-  fe_suspend();
++  fe_sustimeMsecs(10000);
++  #ifdef USING_APP_SPECIFIC_BT_TASK_PROCESSING
++    // Call the app_specific processing function.
++    app_specific_bt_task_processing( 0 ) ;
++  #endif
++
+ 
+ }
+ 
+diff --git a/linux/stinger/hal.c b/linux/stinger/hal.c
+index ad6f9e0a..0ce945e6 100755
+--- a/linux/stinger/hal.c
++++ b/linux/stinger/hal.c
+@@ -37,27 +37,7 @@ static pthread_mutex_t i2c_mutex[ NUM_I2C_BUSSES ];
+ 
+ void ioctl_reset_maxwells(void);
+ 
+-#if defined __aarch64__
+-
+-    // AM64XX definitions
+-    #define HIGH_LOW_ANTENNA_GAIN_GPIO 0 // high=0, low=1
+-    #define G2FI_GPIO 0 //
+-    #define LG2_POWER_DETECT_GPOI 0 //
+-    #define ANTENNA_VOLTAGE_GPIO 0 // 
+-    #define DISPLAY_RESET_GPIO 0 //
+-
+-    #define SET10MHZ_TO_900RADIO_GPIO 0 // 0=enable
+-    #define RADIO_ENABLE_GPIO 0 // 1=enable
+-
+-    #define REV_CFG0_GPIO 0
+-    #define REV_CFG1_GPIO 0
+-    #define REV_CFG2_GPIO 0
+-    #define REV_CFG3_GPIO 0
+-
+-    #define SECONDARY_I2C_BUS 0 // /dev/i2c-0
+-    #define I2C_PORT_TRANSLATE(x) x=SECONDARY_I2C_BUS
+-
+-#elif defined ALLOY
++#if defined ALLOY
+ 
+     // Alloy definitions
+     #define HIGH_LOW_ANTENNA_GAIN_GPIO 8 // GPIO1_8 high=0, low=1
+@@ -463,6 +443,7 @@ void setup_rf(void)
+   polaris_rev_specific_setup( POLARIS_SBAND_ADDR, 1 );
+   polaris_rev_specific_setup( POLARIS_SPOT_ADDR, 1 );
+ 
++  sleep(1);
+   delay_for_uSec(49999); //Allow for Polaris to finish re-cal and PLL's to re-lock. 
+ }
+ void setup_port_pins(void)
+diff --git a/linux/stinger/init.c b/linux/stinger/init.c
+index c6e4b90a..1c12a64b 100755
+--- a/linux/stinger/init.c
++++ b/linux/stinger/init.c
+@@ -185,10 +185,6 @@ void detect_maxwell_chips_linux(void)
+   for( i = 0; i < N_MAXWELLS; i++ )
+   {
+     dspChipType[i] = dsp_returnChipType( (void *)asic_ptr[i] );
+-   #if FPGA_MAXWELL_RADIO_ONLY
+-    if ( ( dspChipType[i] == eUnknown_chip ) && ( i >= N_FPGA_MAXWELLS ) )
+-      dspChipType[i] = eMaxwell7_chip;
+-   #endif
+ 
+     if( dspChipType[i] != eUnknown_chip )
+     {
+@@ -209,11 +205,11 @@ void detect_maxwell_chips_linux(void)
+     }
+   }
+ #if USE_FFT_DMA
+-#ifdef __COBALT__
+-  dma_fd = __cobalt_open( "/dev/rtdm/" MAXWELL_SDMA_DRV_NAME, O_RDWR );
+-#else
+-  dma_fd = open( "/dev/" MAXWELL_SDMA_DRV_NAME, O_RDWR );
+-#endif
++  #ifdef __COBALT__
++    dma_fd = __cobalt_open( "/dev/rtdm/" MAXWELL_SDMA_DRV_NAME, O_RDWR );
++  #else
++    dma_fd = open( "/dev/" MAXWELL_SDMA_DRV_NAME, O_RDWR );
++  #endif
+   if( dma_fd <= 0 )
+   {
+       fe_terminate("can not open /dev/" MAXWELL_SDMA_DRV_NAME "\n");
+@@ -342,21 +338,29 @@ static void lm_wakeup_thread(void)
+ }
+ #endif // __COBALT__
+ 
++#ifdef APP_INTERNAL_RADIO_SUPPORT
+ void radio_timer_thread(void);
+ void radio_thread(void);
++#endif
++
+ #ifdef LBAND_SUPPORT
+ void spot_thread(void);
+ #endif
++
++#if defined FAKE_IMU_SUPPORT || defined I2C_KBD_3L_4R
+ void periodic_20Hz_thread(void);
++#endif
+ 
+ void stinger_bm_thread_create(void)
+ {
+ 
+   int i;
+ 
++#ifdef APP_INTERNAL_RADIO_SUPPORT
+   radio_fd = open(RADIO_DEV_NAME, O_RDWR);
+   if(radio_fd <= 0)
+       printf_l("Can not open " RADIO_DEV_NAME " \n");
++#endif
+ 
+ #ifdef LBAND_SUPPORT
+   spot_fd = open(SPOT_DEV_NAME, O_RDWR);
+@@ -395,10 +399,8 @@ void stinger_bm_thread_create(void)
+   fe_tcreate_name(TASK_ID_SPOT_R, "Radio Spot", 15, spot_thread, 100, 1000);
+ #endif
+ 
+-#if FAKE_IMU_SUPPORT
++#if defined FAKE_IMU_SUPPORT || defined I2C_KBD_3L_4R
+   fe_tcreate_name(TASK_ID_PERIODIC_20HZ, "Per 20Hz", 18, periodic_20Hz_thread, 100, 1000);
+-#else
+-  fe_tcreate_name(TASK_ID_PERIODIC_20HZ, "Per 20Hz", 20, periodic_20Hz_thread, 100, 1000);
+ #endif
+ }
+ 
+@@ -774,6 +776,7 @@ static void bm_thread(void)
+     }
+ }
+ 
++#ifdef APP_INTERNAL_RADIO_SUPPORT
+ void radio_thread(void)
+ {
+     while(1)
+@@ -798,6 +801,20 @@ void radio_thread(void)
+     }
+ }
+ 
++extern int radio_timer_proc(void);
++void radio_timer_thread(void)
++{
++    while(1)
++    {
++        if(!radio_timer_proc())
++        {
++            sleep(1);
++        }
++    }
++}
++
++#endif
++
+ #ifdef LBAND_SUPPORT
+ extern int spot_drv_read(int pos);
+ void spot_thread(void)
+@@ -821,18 +838,7 @@ void spot_thread(void)
+ }
+ #endif
+ 
+-extern int radio_timer_proc(void);
+-void radio_timer_thread(void)
+-{
+-    while(1)
+-    {
+-        if(!radio_timer_proc())
+-        {
+-            sleep(1);
+-        }
+-    }
+-}
+-
++#if defined FAKE_IMU_SUPPORT || defined I2C_KBD_3L_4R
+ void periodic_20Hz_thread(void)
+ {
+   while(1)
+@@ -841,10 +847,15 @@ void periodic_20Hz_thread(void)
+     i2c_kbd_int_processing(0);
+   }
+ }
++#endif
+ 
+ void close_all_and_exit(int retcode)
+ {
+     bm_run_flag = 0;
++
++#ifdef LINUX_LED_SUPPORT
++    led_on_off("LED_SV", 0);
++#endif
+ #if defined USE_EXTERNAL_RTC
+     rtc_deinit();
+ #endif
+@@ -891,6 +902,45 @@ void linux_sched_enable(void)
+ #endif
+ }
+ 
++#ifdef LINUX_LED_SUPPORT
++#define LED_OFF 0
++#define LED_ON 1
++#define LED_FAST_BLINK 2
++#define LED_SLOW_BLINK 3
++
++static void updateLeds(void)
++{
++  static U8 led_state = LED_OFF;
++  
++  U8 numSvsTrack = st_get_num_svs_tracked( 0 ) ;
++
++  if(numSvsTrack == 0)
++  {
++    if(led_state != LED_OFF)
++    {
++      led_state = LED_OFF;
++      led_on_off("LED_SV", 0);
++    }
++  }
++  else if(numSvsTrack < 4)
++  {
++    if(led_state != LED_FAST_BLINK)
++    {
++      led_state = LED_FAST_BLINK;
++      led_fast_blink("LED_SV");
++    }
++  }
++  else
++  {
++    if(led_state != LED_SLOW_BLINK)
++    {
++      led_state = LED_SLOW_BLINK;
++      led_slow_blink("LED_SV");
++    }
++  }
++}
++#endif
++
+ 
+ static void updateLinuxTime(void)
+ {
+@@ -969,7 +1019,7 @@ extern void app_init_startup(void)
+   struct rlimit rl = { .rlim_cur = 300000000, .rlim_max = 300000000 };
+   
+   /** Commented out below line for INS testing */
+-  // setrlimit(RLIMIT_DATA, &rl);
++  setrlimit(RLIMIT_DATA, &rl);
+   
+   err_init();
+   init_deb();
+@@ -1050,6 +1100,9 @@ int main(int argc, char *argv[])
+       bprintf_out();
+       deb_cmd_check();
+       updateLinuxTime();
++      #ifdef LINUX_LED_SUPPORT
++        updateLeds();
++      #endif
+   }
+   return 0;
+ }
+diff --git a/linux/stinger/rules.mk b/linux/stinger/rules.mk
+index 6ba6404b..dd3dbc79 100644
+--- a/linux/stinger/rules.mk
++++ b/linux/stinger/rules.mk
+@@ -7,11 +7,16 @@ include header.mk
+ # Local sources
+ 
+ SRCS_$(d) := \
+-        hal.c \
+         init.c \
+         hal_rtc.c \
+         fe_stubs.c 
+ 
++ifeq ($(CPU_CORE),arm_cortexa9)
++  SRCS_$(d) := $(SRCS_$(d)) hal.c
++else
++  SRCS_$(d) := $(SRCS_$(d)) hal_am62ax.c
++endif
++
+ include srcToObj.mk
+ 
+ # Local flags/rules
+diff --git a/local/am64xx/polaris_intf.c b/local/am64xx/polaris_intf.c
+index ee3503a0..805d7183 100644
+--- a/local/am64xx/polaris_intf.c
++++ b/local/am64xx/polaris_intf.c
+@@ -14,4 +14,143 @@
+ #include "i2c.h"
+ #include "debug.h"
+ 
++S8  get_polaris_revision ( void );
++
++void  polaris_rev_specific_setup ( U8 polaris_addr, BOOLEAN full_setup ) 
++{ 
++  #if POLARIS_RF
++  S8 polaris_rev = get_polaris_revision();
++
++  if ( polaris_rev == dPOLARIS_REV_2F )
++  {
++    if ( full_setup )
++    {
++      // On the assumption that the enable line has just been set,
++      // wait a while for Polaris to start-up before trying to
++      // write to it.
++      fe_sustimeMsecs( 10 ) ;
++      
++      // SPR 13189 ( Polaris test problems )
++      // If we are using a specific antenna, just need to do it once.
++      //   This is called via webUI with "Load Default".  The antenna is
++      //   selected and being changed in polaris_rev_specific_setup_with_ant()
++      if ( ( full_setup == dPOLARIS_FullSetUpAnt0 )
++           || ( full_setup == dPOLARIS_FullSetUpAnt1 ) )
++        polaris_rev2f_setup( polaris_addr );
++      else
++      {
++        #if DUAL_ANT_POLARIS
++          LockDualAnt() ; // lock the mutex until we are done
++          cpu_select_pos_head( 0 ) ; // select position antenna
++          polaris_rev2f_setup( polaris_addr );
++          if ( polaris_addr != POLARIS_SPOT_ADDR )
++          {
++            cpu_select_pos_head( 1 ) ; // select heading antenna
++            polaris_rev2f_setup( polaris_addr );
++          }
++          UnlockDualAnt() ; // unlock the mutex since we are done
++        #else
++          polaris_rev2f_setup( polaris_addr );
++        #endif
++      } // end else
++    }  // end full_setup
++  } // end dPOLARIS_REV_2F
++  else
++  if ( polaris_rev == dPOLARIS_REV_2K )
++  {
++    if ( full_setup )
++    {
++      // On the assumption that the enable line has just been set,
++      // wait a while for Polaris to start-up before trying to
++      // write to it.
++      if ( fe_running() )
++        fe_sustimeMsecs( 10 ) ;
++      else
++        delay_for_uSec( 10000 );
++
++      // SPR 13189 ( Polaris test problems )
++      // If we are using a specific antenna, just need to do it once.
++      //   This is called via webUI with "Load Default".  The antenna is
++      //   selected and being changed in polaris_rev_specific_setup_with_ant()
++      if ( ( full_setup == dPOLARIS_FullSetUpAnt0 )
++           || ( full_setup == dPOLARIS_FullSetUpAnt1 ) )
++        polaris_rev2k_setup( polaris_addr );
++
++      else
++      {
++        #if DUAL_ANT_POLARIS
++          LockDualAnt() ; // lock the mutex until we are done
++          cpu_select_pos_head( 0 ) ; // select position antenna
++          polaris_rev2k_setup( polaris_addr );
++          if ( polaris_addr != POLARIS_SPOT_ADDR )
++          {
++            cpu_select_pos_head( 1 ) ; // select heading antenna
++            polaris_rev2k_setup( polaris_addr );
++          }
++          UnlockDualAnt() ; // unlock the mutex since we are done
++        #else
++          polaris_rev2k_setup( polaris_addr );
++        #endif
++      }  // end else
++    } // end full_setupt
++  }  // end dPOLARIS_REV_2K
++
++  polaris_conf_drive_strength( polaris_addr, full_setup );
++ #else
++  (void)polaris_addr;
++  (void)full_setup;
++ #endif
++}
++
++S8  get_polaris_revision ( void ) 
++{ 
++ #if POLARIS_RF
++  return dPOLARIS_REV_2K;
++ #endif
++}
++
++void polaris_conf_drive_strength( U8 polaris_addr, U8 full_setup )
++{
++  if ( polaris_addr == POLARIS_LGB1_ADDR )
++  {
++    // SPR 13189 ( Polaris test problems )
++    // If it is a specific antenna number and is locked via "Load Default", then
++    //   just write to it and do not need to lock the mutex.
++    if ( full_setup == dPOLARIS_FullSetUpAnt0 )
++      polaris_write( polaris_addr, 0x08, 0x24 );
++
++    else if ( full_setup == dPOLARIS_FullSetUpAnt1 )
++      polaris_write( polaris_addr, 0x09, 0xFB );
++
++    // called by enabling/disable tracking frequency
++    else
++    {
++      LockDualAnt() ; // lock the mutex until we are done
++      cpu_select_pos_head( 0 ) ; // select position antenna
++
++      // Set ADC drive strength to 10mA, 50MHz to 10mA
++      polaris_write( polaris_addr, 0x08, 0x24 );
++
++      // Disable the 50MHz clock output
++      // Heading antenna only as it's not used
++      cpu_select_pos_head( 1 ) ; // select heading antenna
++      polaris_write( polaris_addr, 0x09, 0xFB );
++
++      UnlockDualAnt() ; // unlock the mutex since we are done
++    } // end else
++  }
++  delay_for_uSec(2);
++}
++
++void  set_testStation0_DACS ( void ) 
++{ 
++  bprintf(" set_testStation0_DACS\n"); return ; 
++}
++
++void  clear_testStation0_DACS ( void ) 
++{ 
++  bprintf(" clear_testStation0_DACS\n"); return ; 
++}
++
++
+ /* End of file polaris_intf.c */
+diff --git a/local/am64xx/polaris_intf.h b/local/am64xx/polaris_intf.h
+index fb03f9a4..7c8b6ec0 100644
+--- a/local/am64xx/polaris_intf.h
++++ b/local/am64xx/polaris_intf.h
+@@ -26,6 +26,22 @@ void polaris_lpf_recalibration_patch( void );
+ U32 get_polaris_lpf_calibration_temp( void );
+ #endif
+ 
++#define POS_EN_LG2 493
++#define POL_EN_LG2 493
++#define POS_EN_LE5 494
++#define POL_EN_LE5 494
++#define POS_EN_E6  495
++#define POL_EN_E6  495
++#define EN_MSS     497
++#define POL_EN_MSS     497
++#define POS_EN_MSS     497
++
++#define HD_EN_LG1 500
++#define HD_EN_LG2 501
++#define HD_EN_LE5 502
++#define HD_EN_E6  503
++
++
+ #if CPU_POLARIS_FUNCTIONS
+ 
+ #define CPU_ENABLE_E2  (1)
+@@ -33,47 +49,10 @@ U32 get_polaris_lpf_calibration_temp( void );
+ #define CPU_ENABLE_LG2 (1)
+ #define CPU_ENABLE_LE5 (1)
+ 
+-static U8 expander_bands_enabled[2] = {0x01, 0xFF}; //RF I/O expander CMD and Data
+-
+- /***********************************************************************
+- * Name:        conf_io_output(void)
+- *
+- * Description: Configure RF I/O expander pins as output
+- *
+- * Passed:      VOID
+- *
+- * Returns:     VOID
+- *
+- * Limitations: NONE
+- *
+- * Technique:
+- * I2C write to RF I/O expander configuration register
+- *
+- ***********************************************************************
+- */ 
+-static void ioexpander_out(void)
+-{
+-  static BOOLEAN io_conf_done = FALSE;
+-  if ( io_conf_done == FALSE )
+-  {
+-    U8 io_conf_bands[2];
+-    io_conf_bands[0] = 0x03;
+-    io_conf_bands[1] = 0x00; // one time setup to configure Enable lines as output
+-    InitI2C(I2C2, I2C_STANDARD_SPEED, 0);
+-    LockI2C(I2C2);
+-    WriteI2C(I2C2,0x21,io_conf_bands,2);
+-    UnlockI2C(I2C2); 
+-    io_conf_done = TRUE;
+-  }
+-  LockI2C(I2C2);
+-  WriteI2C(I2C2,0x21,expander_bands_enabled,2);
+-  UnlockI2C(I2C2);
+-}
+-
+ /***********************************************************************
+  * Name:        cpu_enable_E2(void)
+  *
+- * Description: Enable power to E2 RF section.
++ * Description: Stub function since there is no GPIO to enable E2.
+  *
+  * Passed:      VOID
+  *
+@@ -87,18 +66,12 @@ static void ioexpander_out(void)
+  */
+ static void cpu_enable_E2(void)
+ {
+-  // configure I/O expander and Polaris for B1 because it falls under E2 band
+-  expander_bands_enabled[1] |= B1_ENABLED;
+-  ioexpander_out();
+-
+-  polaris_rev_specific_setup( POLARIS_B1_ADDR, 1 );
+ } /* end of cpu_enable_E2() */
+ 
+-
+ /***********************************************************************
+  * Name:        cpu_disable_E2(void)
+  *
+- * Description: disable power to E2 RF section.
++ * Description: Stub function since there is no GPIO to disable E2.
+  *
+  * Passed:      VOID
+  *
+@@ -112,8 +85,6 @@ static void cpu_enable_E2(void)
+  */
+ static void cpu_disable_E2(void)
+ {
+-  expander_bands_enabled[1] &= ~B1_ENABLED;
+-  ioexpander_out();
+ } /* end of cpu_disable_E2() */
+ 
+ 
+@@ -134,9 +105,7 @@ static void cpu_disable_E2(void)
+  */
+ static void cpu_enable_E6(void)
+ {
+-  expander_bands_enabled[1] |= E6_ENABLED;
+-  ioexpander_out();
+-
++  gpio_set( HD_EN_E6, 1 );
+   polaris_rev_specific_setup( POLARIS_E6_ADDR, 1 );
+ } /* end of cpu_enable_E6() */
+ 
+@@ -158,8 +127,7 @@ static void cpu_enable_E6(void)
+  */
+ static void cpu_disable_E6(void)
+ {
+-  expander_bands_enabled[1] &= ~E6_ENABLED;
+-  ioexpander_out();
++  gpio_set(HD_EN_E6, 0);
+ } /* end of cpu_disable_E6() */
+ 
+ 
+@@ -180,8 +148,7 @@ static void cpu_disable_E6(void)
+  */
+ static void cpu_enable_LG2(void)
+ {
+-  expander_bands_enabled[1] |= LG2_ENABLED;
+-  ioexpander_out();
++  gpio_set(HD_EN_LG2, 1);
+ 
+   polaris_rev_specific_setup( POLARIS_LG2_ADDR, 1 );
+ } /* end of cpu_enable_LG2() */
+@@ -204,8 +171,7 @@ static void cpu_enable_LG2(void)
+  */
+ static void cpu_disable_LG2(void)
+ {
+-  expander_bands_enabled[1] &= ~LG2_ENABLED;
+-  ioexpander_out();
++  gpio_set(HD_EN_LG2, 0);
+ } /* end of cpu_disable_LG2() */
+ 
+ 
+@@ -226,9 +192,7 @@ static void cpu_disable_LG2(void)
+  */
+ static void cpu_enable_LE5(void)
+ {
+-  expander_bands_enabled[1] |= LE5_ENABLED;
+-  ioexpander_out();
+-
++  gpio_set(HD_EN_LE5, 1);
+   polaris_rev_specific_setup( POLARIS_LE5_ADDR, 1 );
+ } /* end of cpu_enable_LE5() */
+ 
+@@ -250,8 +214,7 @@ static void cpu_enable_LE5(void)
+  */
+ static void cpu_disable_LE5(void)
+ {
+-  expander_bands_enabled[1] &= ~LE5_ENABLED;
+-  ioexpander_out();
++  gpio_set(HD_EN_LE5, 0);
+ } /* end of cpu_disable_LE5() */
+ 
+ 
+@@ -272,8 +235,7 @@ static void cpu_disable_LE5(void)
+  */
+ static void cpu_enable_SPOT(void)
+ {
+-  expander_bands_enabled[1] |= SPOT_ENABLED;
+-  ioexpander_out();
++  gpio_set( POL_EN_MSS, 1);
+ 
+   polaris_rev_specific_setup( POLARIS_SPOT_ADDR, 1 );
+ } /* end of cpu_enable_SPOT() */
+@@ -296,11 +258,9 @@ static void cpu_enable_SPOT(void)
+  */
+ static void cpu_disable_SPOT(void)
+ {
+-  expander_bands_enabled[1] &= ~SPOT_ENABLED;
+-  ioexpander_out();
++  gpio_set( POL_EN_MSS, 0);
+ } /* end of cpu_disable_SPOT() */
+ 
+-
+ /***********************************************************************
+  * Name:        cpu_enable_SBAND(void)
+  *
+@@ -318,10 +278,7 @@ static void cpu_disable_SPOT(void)
+  */
+ static void cpu_enable_SBAND(void)
+ {
+-  expander_bands_enabled[1] |= SBAND_ENABLED;
+-  ioexpander_out();
+ 
+-  polaris_rev_specific_setup( POLARIS_SBAND_ADDR, 1 );
+ } /* end of cpu_enable_SBAND() */
+ 
+ 
+@@ -342,8 +299,7 @@ static void cpu_enable_SBAND(void)
+  */
+ static void cpu_disable_SBAND(void)
+ {
+-  expander_bands_enabled[1] &= ~SBAND_ENABLED;
+-  ioexpander_out();
++
+ } /* end of cpu_disable_SBAND() */
+ 
+ #endif  // #if CPU_POLARIS_FUNCTIONS
+diff --git a/local/am64xx/web_system_intf.h b/local/am64xx/web_system_intf.h
+index 56c69e75..5d2670f3 100644
+--- a/local/am64xx/web_system_intf.h
++++ b/local/am64xx/web_system_intf.h
+@@ -23,7 +23,7 @@ static __inline__ void web_system_cpu_clocks( httpd_state_t *p_state )
+ 
+   switch ( chip_type )
+   {
+-      httpd_printf(p_state,"<cpuInfo0>Freescale AM64XX</cpuInfo0>");
++      httpd_printf(p_state,"<cpuInfo0>TI AM64XX</cpuInfo0>");
+       break;
+   }
+ }
+diff --git a/local/flashFS_config.h b/local/flashFS_config.h
+index 3b9fd376..a9a3de30 100644
+--- a/local/flashFS_config.h
++++ b/local/flashFS_config.h
+@@ -170,6 +170,9 @@
+     #define dBBFFSSectorOffset        (dProgStorageSectorOffset + 0x00520000)
+   #elif defined ZEPPELIN
+     #define dBBFFSSectorOffset        (dProgStorageSectorOffset + 0x00C60000)
++  #elif defined GENESIS
++    #define dBBFFSSectorOffset        (dProgStorageSectorOffset + 0x01400000)
++  #elif defined LEWIS
+   #else
+     //The dProgStorageSectorOffset is at 0x140000 for most of the platforms.
+     //The baseline size of the firmware is 0x3C0000. So 0x500000 is the
+diff --git a/local/polaris_i2c.c b/local/polaris_i2c.c
+index 06e80a85..c4e487df 100644
+--- a/local/polaris_i2c.c
++++ b/local/polaris_i2c.c
+@@ -56,6 +56,8 @@
+   // will not affect other devices if the controller is shared.
+   #warning "Switch this to I2C_STANDARD SPEED!"
+   #define I2C_SPEED I2C_FAST_SPEED
++#elif defined GENESIS
++  #define I2C_PORT I2C1
+ #elif defined ZYNQ
+ #if defined MEZCAL
+   #define I2C_PORT I2C3
+@@ -354,6 +356,9 @@ static eRF_Enabled get_dual_ant_enabled( U8 ant_num )
+  #elif defined KRYPTON
+   U32 ant_enabled = XGpio_datain( PORT_3V3 ) ;
+  #elif defined AUGER
++ #warning "TBD: Review use of Dual Ant"
++  U32 ant_enabled = 0xFFFFFFFF ;
++ #elif defined GENESIS
+  #warning "TBD: Review use of Dual Ant"
+   U32 ant_enabled = 0xFFFFFFFF ;
+  #else
+@@ -1476,6 +1481,8 @@ static BOOLEAN polaris_isLocked( U8 ant_num, U8 device_addr )
+   if ( ant_num || ( device_addr != POLARIS_LG1_ADDR ) )
+  #elif defined KRYPTON || defined AUGER
+   if ( ant_num || ( device_addr != POLARIS_LGB1_ADDR ) )
++ #elif defined GENESIS
++  if( device_addr != POLARIS_LGB1_ADDR )
+  #elif defined KOOLAID \
+     || defined ARGON \
+     || defined KIRKWOOD \
+@@ -1523,6 +1530,14 @@ static BOOLEAN polaris_isLocked( U8 ant_num, U8 device_addr )
+           return FALSE ;
+         }
+         break ;
++      #elif defined GENESIS
++       case POLARIS_LGB1_ADDR:
++        if ( ant_num && ! ( rf_band_enabled & HD_LGx1_ENABLED ) )
++        {
++          //TPRINTF(DBG_MISC, "Heading LGB1 not enabled\r\n" ) ;
++          return FALSE ;
++        }
++        break ;
+       #elif defined AUGER
+       case POLARIS_LG1_ADDR:
+         if ( ant_num && ! ( rf_band_enabled & HD_LGx1_ENABLED ) )
+@@ -1681,7 +1696,7 @@ void polaris_check_all_GNSS_status( void )
+   }
+   UnlockDualAnt() ; // unlock the mutex since we are done
+ 
+- #elif defined KRYPTON
++ #elif defined KRYPTON || defined GENESIS
+   LockDualAnt() ; // lock the mutex until we are done
+   cpu_select_pos_head( 0 ) ; // select position antenna
+   polaris_isLocked( 0, POLARIS_LG2_ADDR ) ;
+diff --git a/local/uartcfg.h b/local/uartcfg.h
+index 89c1f497..e79956b9 100644
+--- a/local/uartcfg.h
++++ b/local/uartcfg.h
+@@ -147,6 +147,10 @@
+       #endif
+     #elif defined MEZCAL
+       { CPU_UART, CPU_UART0,  FLOW_CTS,  BAUD3000K },// Bluetooth
++    #elif defined GENESIS
++      { CPU_UART, CPU_UART2,  FLOW_CTS,  BAUD921K }, // Channel 0 - Port 1
++      { CPU_UART, CPU_UART1,  FLOW_CTS,  BAUD921K }, // Channel 1 - Port 2
++      { CPU_UART, CPU_UART0,  FLOW_NONE, BAUD921K }, // Channel 2 - Port 3
+     #elif defined BCUDA
+      #if defined BCUDA_MAXWELL8_TEST
+       #if defined MAXWELL_UART_SUPPORT
+@@ -585,6 +589,11 @@
+   #elif defined MEZCAL
+     #define CPU_UART0_CHANNEL   UartIndex0      // Bluetooth
+     #define BT_UART             CPU_UART0_CHANNEL
++  #elif defined GENESIS
++    // #define NUM_UART_DRIVER_BUFFERS          3  // <-- io.h should match this!
++     #define CPU_UART2_CHANNEL   UartIndex0
++     #define CPU_UART1_CHANNEL   UartIndex1
++     #define CPU_UART0_CHANNEL   UartIndex2
+   #elif defined BCUDA
+    #if defined BCUDA_MAXWELL8_TEST
+     #if defined MAXWELL_UART_SUPPORT
+diff --git a/makefile_settings/alloy_linux_builddirs.mk b/makefile_settings/alloy_linux_builddirs.mk
+index 029cc3f9..01323c67 100755
+--- a/makefile_settings/alloy_linux_builddirs.mk
++++ b/makefile_settings/alloy_linux_builddirs.mk
+@@ -46,15 +46,10 @@ ifeq ($(BUILD_STINGER),y)
+ 
+   CF_ALL += -DECOSPRO_SMP_SUPPORT -DMULTI_CORE_SMP_SUPPORT
+ 
+-  ifeq ($(CPU_CORE),arm_cortexa9)
+-    CF_ALL += -DUSE_FFTS
+-    dir := $(STINGER_SUBDIR)/fft_acq/ffts/src
+-    include $(dir)/rules.mk
+-  else
+-    CF_ALL += -DUSE_KISS_FFT
+-    dir := $(STINGER_SUBDIR)/fft_acq/kiss_fft
+-    include $(dir)/rules.mk
+-  endif
++  CF_ALL += -DUSE_FFTS
++  dir := $(STINGER_SUBDIR)/fft_acq/ffts/src
++  include $(dir)/rules.mk
++
+   dir := $(STINGER_SUBDIR)/fft_acq/fft_wrapper
+   include $(dir)/rules.mk
+ 
+@@ -784,8 +779,10 @@ endif
+     dir := ecos/security/zxcvbn
+     include $(dir)/rules.mk
+ 
++  ifeq ($(CPU_CORE),arm_cortexa9)
+     dir := ecos/upnp/miniupnpc
+     include $(dir)/rules.mk
++  endif
+ 
+   CF_ALL += -iquote linux/include
+ #  CF_ALL += -iquote linux/include/cyg/hal
+diff --git a/makefile_settings/am64xx.mk b/makefile_settings/am64xx.mk
+index 52cee2c0..19f0748c 100644
+--- a/makefile_settings/am64xx.mk
++++ b/makefile_settings/am64xx.mk
+@@ -7,7 +7,7 @@ TOOLPREFIX      = $(TOOLTARGET)-
+ #MY_ARCH	= -march=armv7-a -mtune=cortex-a9 -mfpu=neon -mfloat-abi=hard
+ MY_ARCH		= -mtune=cortex-a53
+ MY_LINK		=
+-MY_CFLAGS = -DALLOY -DFENI
++MY_CFLAGS = -DFENI -DGENESIS
+ 
+ TOOLBASE        = $(TOOLBASE_ROOT)/bin
+ CCVER=5.5.0
+@@ -15,7 +15,7 @@ CCVER=5.5.0
+ MYLIBS          = -lgcc -lm -lpthread -lrt -lstdc++ -Llinux/lib64 -lssl -lcrypto
+ #MYLIBS          = -lgcc -lm -lpthread -lrt -lstdc++ -lssl -lcrypto
+ #MYLIBSX         = $(shell xeno-config --rtdm --posix --ldflags)
+-MYLIBSX          = -Wl,--no-as-needed -Wl,@$(TOOLBASE_ROOT)/sysroot/usr/xenomai/lib/cobalt.wrappers -Wl,@$(TOOLBASE_ROOT)/sysroot/usr/xenomai/lib/modechk.wrappers  $(TOOLBASE_ROOT)/sysroot/usr/xenomai/lib/xenomai/bootstrap.o -Wl,--wrap=main -Wl,--dynamic-list=$(TOOLBASE_ROOT)/sysroot/usr/xenomai/lib/dynlist.ld -Wl,-rpath,/usr/xenomai/lib -L$(TOOLBASE_ROOT)/sysroot/usr/xenomai/lib -lcobalt -lmodechk -lrt 
++MYLIBSX          = -Wl,--no-as-needed -Wl,@$(TOOLBASE_ROOT)/sysroot/usr/xenomai/lib/cobalt.wrappers -Wl,@$(TOOLBASE_ROOT)/sysroot/usr/xenomai/lib/modechk.wrappers  $(TOOLBASE_ROOT)/sysroot/usr/xenomai/lib/xenomai/bootstrap.o -Wl,--wrap=main -Wl,--dynamic-list=$(TOOLBASE_ROOT)/sysroot/usr/xenomai/lib/dynlist.ld -Wl,-rpath,/usr/xenomai/lib -L$(TOOLBASE_ROOT)/sysroot/usr/xenomai/lib -lcobalt -lmodechk -lrt -lalchemy -lcopperplate
+ LINKWFLAGS      = $(TOOLBASE)/$(TOOLPREFIX)gcc $(BASE_CF_ALL) \
+                 $(TGT_OBJS) \
+                 $(TGT_LIBS) \
+@@ -38,7 +38,7 @@ CPPWFLAGS       = $(CPP) $(EXTRACPP) $(BASE_CF_ALL) $(CF_TGT)
+ 
+ 
+ SRECORD         = $(TOOLBASE)/$(TOOLPREFIX)objcopy
+-BIN_TO_OBJ      = $(TOOLBASE)/$(TOOLPREFIX)objcopy
++BIN_TO_OBJ      = $(TOOLBASE)/$(TOOLPREFIX)objcopy -I binary -B aarch64 -O elf64-littleaarch64
+ 
+ TOOLBASE_BIN    = $(TOOLBASE_ROOT)/bin
+ 
+diff --git a/makefile_settings/am64xx.opts b/makefile_settings/am64xx.opts
+index 1381b356..3b92deac 100644
+--- a/makefile_settings/am64xx.opts
++++ b/makefile_settings/am64xx.opts
+@@ -5,7 +5,7 @@ CPU_CORE=arm_cortexa53
+ PROJ_DEFINE=AM64XX
+ GENERATE_IMG_FILE=n
+ SYSOS?=linux
+-USE_QUADCORE=n
++USE_QUADCORE=y
+ BUILD_STINGER=y
+ STINGER_SUBDIR=stinger
+ PANEM_APPS=y
+@@ -38,9 +38,9 @@ USE_EXT_LOGGING=y
+ USE_DDNS=y
+ USE_OMAP_USB=n
+ USE_OMAP_HOST=n
+-USE_STINGER_FFT_ACQ=n
++USE_STINGER_FFT_ACQ=y
+ #AntComms Still in development
+-USE_ANTENNA_COMMS=y
++#USE_ANTENNA_COMMS=y
+ EXCLUDE_WEB_LANG_SUPPORT=n
+   
+ USE_NAND_FLASH=y
+@@ -62,10 +62,10 @@ USE_HTTPD=y
+ # Needs Maxwell 7 - enables FFT spectrogram creation and PNG file saved
+ # to NAND flash if the receiver has a large NAND flash mounted as
+ # /Internal/
+-FFT_SPECTROGRAM=n
++FFT_SPECTROGRAM=y
+ 
+ # Generate a 3D plot on the web RF Spectrum page? Needs USE_STINGER_FFT_ACQ.
+-USE_FFT_3D_PLOT=n
++USE_FFT_3D_PLOT=y
+ 
+ # Debug only feature to show the position track on a leaflet.js based map
+ # Only available under test mode due to tile server licensing restrictions
+diff --git a/makefile_settings/common_includes.mk b/makefile_settings/common_includes.mk
+index c8e2ac07..25965a9a 100755
+--- a/makefile_settings/common_includes.mk
++++ b/makefile_settings/common_includes.mk
+@@ -412,11 +412,7 @@ CF_ALL         += -iquote local \
+                   -iquote loci/models/EarthMagField 
+ 
+ STINGER_INC_DIRS = am auxi dc lm mm nm pf sd ts app cephesd aj
+-ifeq ($(CPU_CORE),arm_cortexa9)
+-  STINGER_INC_DIRS += fft_acq/ffts/include
+-else
+-  STINGER_INC_DIRS += fft_acq/kiss_fft
+-endif
++STINGER_INC_DIRS += fft_acq/ffts/include
+ 
+ ifeq ($(USE_KALMAN_PVT),y)
+   STINGER_INC_DIRS += pf/kf/gkf_if
+diff --git a/maxwell4/max_rw_test.c b/maxwell4/max_rw_test.c
+index 5d793597..c2421298 100644
+--- a/maxwell4/max_rw_test.c
++++ b/maxwell4/max_rw_test.c
+@@ -16,6 +16,15 @@
+ #include "max_rw_test.h"
+ 
+ #define SPEED_TEST_LEN 100
++#define MAXWELL_RW_TEST 1
++
++typedef uint16_t U16;
++typedef uint32_t U32;
++typedef uint64_t U64;
++typedef unsigned char BOOLEAN;
++typedef unsigned char U8;
++typedef float FLT;
++
+ 
+ static max_rwtest_time_t max_rwtest_time[N_MAXWELLS];
+ 
+@@ -244,6 +253,7 @@ BOOLEAN max_rw_test(void)
+         max_rwtest_k = k;
+         max_rwtest_error[i] += 1;
+         ret_value = TRUE;
++        printf("Error 1:%d:%x:%x %x:%x\n", k, max_rwtest_pattern_recv.short_word[0+k], max_rwtest_pattern_recv.short_word[1+k], max_rwtest_pattern.short_word[0+k], max_rwtest_pattern.short_word[1+k]);
+         goto ERROR;
+       }
+     }
+@@ -268,6 +278,7 @@ BOOLEAN max_rw_test(void)
+         max_rwtest_k = k;
+         max_rwtest_error[i] += 1;
+         ret_value = TRUE;
++        printf("Error 2\n");
+         goto ERROR;
+       }
+     }
+@@ -292,6 +303,7 @@ BOOLEAN max_rw_test(void)
+         max_rwtest_pos = 3;
+         max_rwtest_k = k;
+         max_rwtest_error[i] += 1;
++        printf("Error 3\n");
+         ret_value = TRUE;
+         goto ERROR;
+       }
+@@ -325,6 +337,7 @@ BOOLEAN max_rw_test(void)
+           max_rwtest_k = k;
+           max_rwtest_burst_error[0][0]++;
+           ret_value = TRUE;
++           printf("Error 4-1\n");
+           goto ERROR;
+         }
+         if( max_rwtest_pattern_recv.short_word[1] !=  (U16)(~(local_count+k+1)) )
+@@ -333,6 +346,7 @@ BOOLEAN max_rw_test(void)
+           max_rwtest_k = k;
+           max_rwtest_burst_error[0][1]++;
+           ret_value = TRUE;
++          printf("Error 4-2\n");
+           goto ERROR;
+         }
+         if( max_rwtest_pattern_recv.short_word[2] !=  (U16)(local_count+k) )
+@@ -341,6 +355,7 @@ BOOLEAN max_rw_test(void)
+           max_rwtest_k = k;
+           max_rwtest_burst_error[0][2]++;
+           ret_value = TRUE;
++          printf("Error 4-3\n");
+           goto ERROR;
+         }
+         if( max_rwtest_pattern_recv.short_word[3] !=  (U16)(~(local_count+k)) )
+@@ -349,6 +364,7 @@ BOOLEAN max_rw_test(void)
+           max_rwtest_k = k;
+           max_rwtest_burst_error[0][3]++;
+           ret_value = TRUE;
++          printf("Error 4-4\n");
+           goto ERROR;
+         }
+ 
+diff --git a/maxwell4/maxwell_misc.c b/maxwell4/maxwell_misc.c
+index acd00db1..20cd6794 100644
+--- a/maxwell4/maxwell_misc.c
++++ b/maxwell4/maxwell_misc.c
+@@ -1252,6 +1252,25 @@ void get_stinger_setup( U8 *n_channels,
+       *n_rf_group_delays = 2;
+     }
+   }
++ #elif defined GENESIS
++   *rf_plan = eRF_plan_polaris_lgb1;
++
++    // Position antenna always present
++      mSET_GROUP_DELAY( eTPN112349, 0, eRF_BAND_L1, 0, 0 );
++      mSET_GROUP_DELAY( eTPN112349, 1, eRF_BAND_L2, 0, 0 );
++      mSET_GROUP_DELAY( eTPN112349, 2, eRF_BAND_E5, 0, 0 );
++      mSET_GROUP_DELAY( eTPN112349, 3, eRF_BAND_E6, 0, 0 );
++      *n_rf_group_delays = 4;
++
++      // Include the vector/heading antenna if present
++      mSET_GROUP_DELAY( eTPN112349, 4, eRF_BAND_L1, 1, 0 );
++      mSET_GROUP_DELAY( eTPN112349, 5, eRF_BAND_L2, 1, 0 );
++      mSET_GROUP_DELAY( eTPN112349, 6, eRF_BAND_E5, 1, 0 );
++      mSET_GROUP_DELAY( eTPN112349, 7, eRF_BAND_E6, 1, 0 );
++      *n_rf_group_delays = 8;
++
++    *antenna_config = eDualLG1LG2LE5E6Antenna ;
++
+   
+  #elif defined ALLOY
+   {
+diff --git a/spot/hw_driver/spot_hw.h b/spot/hw_driver/spot_hw.h
+index 20d5ef3f..f76322b1 100644
+--- a/spot/hw_driver/spot_hw.h
++++ b/spot/hw_driver/spot_hw.h
+@@ -71,7 +71,7 @@
+ #elif defined ROGUE || defined AM4376
+   #define dSPOT_AtoD_MASK 0xfff0
+   #define dSPOT_AtoD_RSHIFT 4
+-#elif defined ALLOY || defined BCUDA || defined ZYNQ
++#elif defined ALLOY || defined BCUDA || defined ZYNQ || defined GENESIS
+   #undef dSPOT_AtoD_MASK
+   #undef dSPOT_AtoD_RSHIFT
+ #else
+diff --git a/stinger/fft_acq/ffts/src/rules.mk b/stinger/fft_acq/ffts/src/rules.mk
+index 7e517d9d..97a805a0 100644
+--- a/stinger/fft_acq/ffts/src/rules.mk
++++ b/stinger/fft_acq/ffts/src/rules.mk
+@@ -2,14 +2,20 @@ include header.mk
+ 
+ # Local sources
+ SRCS_$(d) := \
+-  codegen.c \
+-  ffts_nd.c \
+   ffts.c \
+-  ffts_real_nd.c \
+   ffts_real.c \
+   ffts_small.c \
+-  patterns.c \
+-  neon.s
++  patterns.c
++
++ifeq ($(CPU_CORE),arm_cortexa9)
++  SRCS_$(d) := $(SRCS_$(d)) \
++    codegen.c \
++    neon.s
++else
++  SRCS_$(d) := $(SRCS_$(d)) \
++    codegen_arm64.c \
++    neon_arm64.s
++endif
+ 
+ include srcToObj.mk
+ 
+@@ -18,3 +24,4 @@ $(OBJS_$(d)): $(d)/../../rules.mk
+ $(call add_flags_to_local_files, -I$(d)/../include )
+ 
+ include footer.mk
++
+diff --git a/stinger/lm/lm_init.c b/stinger/lm/lm_init.c
+index f7de843f..4192abf3 100644
+--- a/stinger/lm/lm_init.c
++++ b/stinger/lm/lm_init.c
+@@ -1122,6 +1122,14 @@ void maxwell_intr_enable(BOOLEAN enable)
+   }
+ 
+ }
++
++BOOLEAN is_bm_intr_active(void)
++{
++  DSP_CTRL *p_dsp_ctrl = GET_DSP_CTRL_ADDR( dspChip[ MASTER_MAXWELL_INDEX ] );
++  U16 msec_status = DSP_READ( p_dsp_ctrl->rd.int_status_m_s ) ;
++  return ((msec_status & (ISR_EXTMS | ISR_HMS))?TRUE:FALSE);
++}
++
+ #endif
+ 
+ /**********************************************************************
+diff --git a/stinger/maxwell4/maxwell_misc.c b/stinger/maxwell4/maxwell_misc.c
+index acd00db1..166c36ad 100644
+--- a/stinger/maxwell4/maxwell_misc.c
++++ b/stinger/maxwell4/maxwell_misc.c
+@@ -955,6 +955,37 @@ void get_stinger_setup( U8 *n_channels,
+     mSET_GROUP_DELAY( eTPN112349, 2, eRF_BAND_E5, 0, 0 );
+     *n_rf_group_delays = 3;
+   }
++#elif defined GENESIS
++  {
++      *rf_plan = eRF_plan_polaris_lgb1;
++      // New Table: Aug 1, 2017
++      // Select the RF calibration table for new TaiSaw filter table
++      mUPDATE_RF_CAL_TABLE( 0, &rx_cal_table_TaiSaw );
++
++      // Position antenna always present
++      mSET_GROUP_DELAY( eTPN112349, 0, eRF_BAND_L1, 0, 0 );
++      mSET_GROUP_DELAY( eTPN112349, 1, eRF_BAND_L2, 0, 0 );
++      mSET_GROUP_DELAY( eTPN112349, 2, eRF_BAND_E5, 0, 0 );
++      mSET_GROUP_DELAY( eTPN112349, 3, eRF_BAND_E6, 0, 0 );
++      *n_rf_group_delays = 4;
++
++      // Include the vector/heading antenna if present
++      mSET_GROUP_DELAY( eTPN112349, 4, eRF_BAND_L1, 1, 0 );
++      mSET_GROUP_DELAY( eTPN112349, 5, eRF_BAND_L2, 1, 0 );
++      mSET_GROUP_DELAY( eTPN112349, 6, eRF_BAND_E5, 1, 0 );
++      mSET_GROUP_DELAY( eTPN112349, 7, eRF_BAND_E6, 1, 0 );
++      *n_rf_group_delays = 8;
++
++    // Kryton is a dual antenna platform but can run in a single antenna
++    // single Maxwell mode. Either way, the number of antennas should have
++    // been set-up above.
++
++    // Override the default dual antenna configuation.
++    // A single antenna version is available through option bits
++    // This is configured via the n_antenna value
++    *antenna_config = eDualLG1LG2LE5E6Antenna ;
++  }
++
+ 
+  #elif defined KRYPTON \
+     || defined KOOLAID
+diff --git a/system/am64xx_feature.h b/system/am64xx_feature.h
+index 5d8e902f..80dedf05 100644
+--- a/system/am64xx_feature.h
++++ b/system/am64xx_feature.h
+@@ -32,14 +32,13 @@
+ // *********************************************************
+ 
+      //#define POWER_OUT_PORT2 (1)
++     #define LINUX_LED_SUPPORT (1)
+ 
+      #define CPU_UART_INSTALLED
+      //#define MAXWELL_UART_SUPPORT
+      #define SERIAL_PORT_DEFAULT_BAUD_115K
+      
+      // AM64XX has 4 serial ports (2 lemo and 2 DB9)
+-     // In addition bluetooth and display on uart interfaces
+-     //
+      #define EXPANDED_UARTS (2)
+      #define NUM_UART_DRIVER_BUFFERS     EXPANDED_UARTS
+      
+@@ -47,13 +46,6 @@
+      #define TWO_MAXWELL_24_CHAN (1)
+      #define I2C_MAC_CHIP (1)
+ 
+-     // Specific to the new 7 button I2C keypad
+-     #define I2C_KBD_3L_4R
+-     
+-     // LED controller that controls LEDS behind capsense buttons and
+-     // rotary
+-     //#define MAX7315_LED_CONTROLLER
+-     
+      // SPR 14882 - Disabling interrupt mode fixes the problem.
+      //#define I2C_MODULE_USES_INTERRUPTS     
+      
+@@ -78,14 +70,6 @@
+      // AM64XX has configurable antenna gain in the RF path
+      #define HIGH_LOW_ANTENNA_GAIN (TRUE)
+ 
+-     // AM64XX has the LT5534 monolithic power detector
+-     #define SUPPORT_LG2_POWER_DETECT
+-
+-     // Delay values that allow the RF switch state transition
+-     // to occur before we try to make an RSSI measurement.
+-     #define LG2_NB_TO_WB_SWITCH_DELAY_USEC   (1)
+-     #define LG2_WB_TO_NB_SWITCH_DELAY_USEC   (1)
+-
+      // AM64XX supports 6 RF bands and 1 RF switch (LG2/L2Only)
+      // and therefore needs 7 group delay cases
+      #undef  dNUM_RF_GROUP_DELAYS
+@@ -102,6 +86,13 @@
+      // written to the bad Polaris EVM.
+      #define POLARIS_LPF_RECALIBRATION (1)      
+ 
++	
++     /* Genesis supports two antenna inputs */
++     #define SUPPORT_DUAL_ANTENNA (TRUE)
++
++     #undef  dNUM_RF_GROUP_DELAYS
++     #define dNUM_RF_GROUP_DELAYS 8
++
+      // Define the systems supported other than GPS
+      #undef GLONASS_INSTALLED
+      #define GLONASS_INSTALLED   (TRUE)
+@@ -178,7 +169,7 @@
+ 
+      // The following define enables Stinger to do cross-aiding
+      // among different bands.
+-     #define CROSS_AIDING_ENABLED (TRUE)
++     //#define CROSS_AIDING_ENABLED (TRUE)
+ 
+     // // The following define enables slave signal reacquisition
+     //#if CROSS_AIDING_ENABLED
+@@ -235,43 +226,6 @@
+      // Used for file upload and download over the USB port.
+      #define IO_BUFFER_4K (1)
+ 
+-     // Comment out if no Internal Battery is present.
+-     #define HAS_INTERNAL_BATTERY
+-     #define INTERNAL_BATTERY_CHARGER
+-     // The battery is replacable by the customer.
+-     #define REMOVABLE_BATTERY
+-     
+-     #define IMX6_I2C_PSOC
+-     
+-     #define POWER_OVER_ETHERNET (1)
+-     #define POWER_OVER_ETHERNET_TYPE (1)
+-
+-     // Enables user selection of Power On Voltage
+-     #define CONFIGURABLE_POWER_ON_VOLT (1)
+-     // AM64XX has 2nd external configurable source
+-     #define SECOND_CONFIGURABLE_POWER_ON_VOLT (1)
+-
+-     // Enables user selection of Shutdown Voltage
+-     #define EXT_SHUTDOWN_VOLT   (1)
+-     // AM64XX has 2nd external configurable source
+-     #define SECOND_EXT_SHUTDOWN_VOLT   (1)
+-
+-
+-     // Enables user to control when to charge the internal battery.
+-     #define BATTERY_CHARGE_CONTROLS (1)
+-
+-     /* AM64XX uses smart battery */
+-     #define USE_SMART_BATTERY
+-
+-     #ifdef USE_SMART_BATTERY
+-       #define SUPPORT_MULTIPLE_INTERNAL_BATTERIES
+-     #endif
+-
+-     /* AM64XX has two smart batteries, review two battery support in the
+-      * current core_power/smart_battery.h/c files. Revision or new
+-      * compile define may be necessary
+-      */
+-
+        #define NVCMGR_SUPPORT (1)
+        // Standard Features allowed with coreBuild ecos
+        #define ETHERNET_HW_SUPPORT 1
+@@ -293,9 +247,12 @@
+        #define NTP_SERVER_CLIENT (1)
+        #define NTRIP_CASTER_CONNECT_LIMIT_SUPPORT (1)
+ 
+-       #define MDNS_SUPPORT (TRUE)
+-       #define UPNP_SSDP_SUPPORT (TRUE)
+-       #define UPNP_CONTROL_SUPPORT (TRUE)
++       //#define MDNS_SUPPORT (TRUE)
++       //#define UPNP_SSDP_SUPPORT (TRUE)
++       //#define UPNP_CONTROL_SUPPORT (TRUE)
++       #undef MDNS_SUPPORT
++       #undef UPNP_SSDP_SUPPORT
++       #undef UPNP_CONTROL_SUPPORT
+ 
+        // Application Feature base on systems with ECOS enabled:
+        //
+@@ -406,14 +363,9 @@
+      // Function runtime_maxDataLoggingSessions() could reduce that
+      // number at runtime, based on receiver ID, but that is unlikely.
+      #undef MAX_DATA_LOGGING_SESSIONS
+-     #define MAX_DATA_LOGGING_SESSIONS (12)
++     #define MAX_DATA_LOGGING_SESSIONS (2)
+      #define FS_MAX_OPEN_FILES (36)
+ 
+-     // AM64XX supports maximum aggregate of 188 Hz from multiple
+-     // sessions. e.g. 1 session @100Hz, 1@50Hz, 1@20Hz, 1@10Hz, 1@5Hz,
+-     // 1@2Hz, and 1@1Hz
+-     #define MAX_AGGREGATE_MEASUREMENT_LOGGING_RATE (188.0) // Hz
+-
+      // USB
+     #if defined ECOS || LINUX
+      #define MTP_SUPPORT (1)
+@@ -435,14 +387,9 @@
+      // System only has one external power source with no A2D.
+      // AM64XX only accepts 3.3V power, as defined by this Macro.
+      // That fixed value will be returned to anybody who asks.
+-     //#define SINGLE_EXTERNAL_POWER (3.3)
++     #define SINGLE_EXTERNAL_POWER (3.3)
+      // No A2D or TI part so fake it in software.
+-     //#define USE_FAKE_A2D
+-     
+-     //Temporarily commenting out PSOC defines until PSOC support in app is checked in
+-     
+-     //PSOC defines
+-     #define HAS_PWR_MGMT_CPU
++     #define USE_FAKE_A2D
+      
+      //#define LBAND_SUPPORT (1)  /* For omniSTAR */
+      //#define LBAND_SUPPORT_NO_DMA  /* Debug Use Only since SDMA works */
+@@ -604,6 +551,7 @@
+ 
+    // Enables writing record 35:263 - hourly latency diagnostics to T04
+    #define dLatencyLogging TRUE
++   #define NO_MULTI_CMRX_DECODER_SUPPORT
+ 
+    //Enables two VLAN interface on the ethernet interface
+    //#define VLAN_SUPPORT (TRUE)
+diff --git a/system/feature_config.h b/system/feature_config.h
+index ec3759be..4ace1980 100755
+--- a/system/feature_config.h
++++ b/system/feature_config.h
+@@ -1844,8 +1844,8 @@
+ #elif defined ALLOY_OTP_SUPPORT
+   #include "alloyOTP_feature.h"
+ 
+-#elif defined AM64XX
+-  // Product-specific defines for AM64XX
++#elif defined GENESIS
++  // Product-specific defines for GENESIS
+   // Features are defined in a separate file.
+   #include "am64xx_feature.h"
+ 
+diff --git a/system/runtime_cfg.c b/system/runtime_cfg.c
+index b03f4906..2e4337dd 100755
+--- a/system/runtime_cfg.c
++++ b/system/runtime_cfg.c
+@@ -3881,7 +3881,84 @@ void InitKeanuConfig(void)
+ 
+ } /* end of InitKeanuConfig() */
+ 
++#elif defined GENESIS
+ 
++/**********************************************************************/
++static void InitGenesisConfig(void)
++/**********************************************************************/
++{
++  // Set all Peripherals off by default.
++  memset( Peripherals, 0, sizeof(Peripherals) ) ;
++
++  // Enable Peripherals that are actually present.
++  Peripherals[ eEthernet ] = 1 ;
++  Peripherals[ eNTPServer ] = 1 ;
++
++ #if defined TWO_MAXWELL_24_CHAN
++  Peripherals[ e2ndMaxwellDSPAvail ] = 1 ; // may be changed below
++ #endif
++
++ #if GLONASS_INSTALLED
++  Peripherals[ eGlonassRF ] = 1 ;
++ #endif
++
++ #if LBAND_SUPPORT
++  Peripherals[ eOmnistarRF ] = 1 ; // may be changed below
++ #endif
++
++ #if L5_INSTALLED
++  Peripherals[ eL5RF ] = 1 ;
++ #endif
++
++ #if GALILEO_INSTALLED
++  Peripherals[ eGalileoRF ] = 1 ;
++ #endif
++
++ #ifdef SUPPORT_DUAL_ANTENNA
++  if ( ! factoryInstalled( FO_DisableVectorAntenna ) )
++    Peripherals[eVectorAntenna]     = 1 ;
++ #endif
++
++  Peripherals[ eL2RF ] = 1 ;
++  Peripherals[ eNoBattery ] = 1 ;
++  Peripherals[ ePPSOutput ] = 1 ;
++
++  // Enable MX0_Event and MX0_Event1
++  Peripherals[ eTwoEventMarkers ] = 1 ;
++
++  Peripherals[ eUSBOTG ] = 1 ;
++  Peripherals[ eCAN ] = 1 ;
++
++  // SPR 9237 ( Support BeiDou on Vulcan ) - allow Beidou on Vulcan
++ #if BEIDOU_INSTALLED
++  Peripherals[ eBeidouRF ] = 1 ;
++ #endif
++
++  Peripherals[ eNoPowerButton ] = 1 ;
++  // Read the RF configuration to see what kind of HW we have.
++  // A value of 3 (011'b) indicates LG1 / LG2 / LE5 / E2 only.
++
++  Peripherals[ eDualAntennaVoltage] = 1 ;
++
++  #if EXTERNAL_FREQUENCY
++    Peripherals[ eExternalFrequency ] = 1 ;
++  #endif
++
++  #if E6_INSTALLED
++    Peripherals[ eE6RF ] = 1 ;
++  #endif
++
++  // Internal IMU Present
++  Peripherals[ eIMUPresent ] = 1 ;
++
++  Peripherals[ eDMIPresent ] = 1 ;
++
++  Peripherals[ eMAG3110 ] = 1 ;
++
++  // Get the receiver ID, Applanix product and model for subsequent config.
++  Recvr_t RXID = factoryInstalledRecType() ;
++
++} /* End of InitGenesisConfig */
+ 
+ #elif defined ALLOY
+ 
+@@ -5731,7 +5808,11 @@ BOOLEAN runtime_ext4Installed( void )
+ 
+ BOOLEAN runtime_nandFileSystemInstalled( void )
+ {
+-  return (runtime_yaffsInstalled() | runtime_ext4Installed());
++  #ifdef LINUX
++    return TRUE;
++  #else
++    return (runtime_yaffsInstalled() | runtime_ext4Installed());
++  #endif
+ }
+ 
+ 
+@@ -6054,6 +6135,8 @@ void SetHardwarePlatform(Platform_e P, U8 majorRev, U8 minorRev)
+   InitWarthogConfig() ;
+  #elif defined KRYPTON || defined KOOLAID
+   InitVulcanKryptonKoolaidConfig() ;
++ #elif defined GENESIS
++  InitGenesisConfig() ;
+  #elif defined ALLOY
+   InitAlloyConfig() ;
+  #elif defined TACOMA
+@@ -6308,6 +6391,10 @@ BOOLEAN runtime_defaultSecurityOn(void)
+     // iMX6 Platforms
+     case RECVR_ALLOY:
+       return FALSE;
++ #elif defined GENESIS
++    // iMX6 Platforms
++    case RECVR_GENESIS:
++      return FALSE;
+    #elif defined AUGER
+    #warning "TBD: Double Check"
+     case RECVR_AUGER:
+@@ -6548,6 +6635,9 @@ BOOLEAN runtime_defaultSBASOn(void)
+    #elif defined ALLOY
+     case RECVR_ALLOY:
+       return FALSE;
++#elif defined GENESIS
++    case RECVR_GENESIS:
++      return FALSE;
+ // Zynq Platforms
+   #elif defined AUGER
+   #warning "TBD: Double Check"
+@@ -6795,6 +6885,9 @@ BOOLEAN runtime_defaultOMNIStarOff(void)
+ #elif defined ALLOY
+     case RECVR_ALLOY:
+       return FALSE;
++#elif defined GENESIS
++    case RECVR_GENESIS:
++      return FALSE;
+ // Zynq Platforms
+ #elif defined AUGER
+ #warning "TBD: Double Check"
+@@ -6995,6 +7088,9 @@ BOOLEAN runtime_defaultMSS_RTX(void)
+ #elif defined ALLOY
+     case RECVR_ALLOY:
+       return TRUE;
++#elif defined GENESIS
++    case RECVR_GENESIS:
++      return TRUE;
+ // Zynq Platforms
+ #elif defined AUGER
+ #warning "TBD: Double Check"
+@@ -7232,6 +7328,9 @@ int runtime_receiverSupportsAutobase( void )
+ #elif defined ALLOY
+     case RECVR_ALLOY:
+       return 0;
++#elif defined GENESIS
++    case RECVR_GENESIS:
++      return 0;
+ // Zynq Platforms
+ #elif defined AUGER
+ #warning "TBD: Double Check"
+@@ -7450,6 +7549,9 @@ BOOLEAN runtime_defaultAutoBaseOn(void)
+     case RECVR_BD935:
+     case RECVR_APX15V2:
+       return FALSE;
++#elif defined GENESIS
++    case RECVR_GENESIS:
++      return FALSE;
+ // iMX6 Platforms
+    #elif defined ALLOY
+     case RECVR_ALLOY:
+@@ -7695,6 +7797,9 @@ BOOLEAN runtime_defaultStartAsStatic(void)
+     case RECVR_BD935:
+     case RECVR_APX15V2:
+       return FALSE;
++#elif defined GENESIS
++    case RECVR_GENESIS:
++      return TRUE;
+ // iMX6 Platforms
+ #elif defined ALLOY
+     case RECVR_ALLOY:
+@@ -7975,6 +8080,8 @@ St_L2Trk_Mode_e runtime_defaultL2CSwithLegacy(void)
+       case RECVR_APX_18:
+       case RECVR_AP_PLUS:
+         return St_L2Trk_L2E_or_C ;
++     #elif defined GENESIS
++         return St_L2Trk_L2E_or_C ;
+      #elif defined MEZCAL
+       case RECVR_RX580:
+       case RECVR_SP70:
+@@ -8382,6 +8489,9 @@ int runtime_maxDataLoggingSessions( void )
+     case RECVR_BD935:
+     case RECVR_APX15V2:
+       break;
++#elif defined GENESIS
++    case RECVR_GENESIS:
++      break;
+ // iMX6 Platforms
+ #elif defined ALLOY
+     case RECVR_ALLOY:
+@@ -10191,6 +10301,9 @@ BOOLEAN runtime_supportGoldenEyeCore( void )
+     case RECVR_BD935:
+     case RECVR_APX15V2:        // Added with SPR 11884
+       return TRUE;
++#elif defined GENESIS
++    case RECVR_GENESIS:
++      return TRUE;
+ // iMX6 Platforms
+ #elif defined ALLOY
+     case RECVR_ALLOY:
+@@ -10449,6 +10562,9 @@ BOOLEAN runtime_supportXfill2( void )
+      #else
+       return FALSE;
+      #endif
++#elif defined GENESIS
++    case RECVR_GENESIS:
++      return TRUE;
+ #elif defined MEZCAL
+   case RECVR_RX580:
+   case RECVR_SP70:
+@@ -10685,6 +10801,9 @@ BOOLEAN runtime_supportXfillX( void )
+     case RECVR_APX_18:
+     case RECVR_AP_PLUS:
+       return FALSE;
++#elif defined GENESIS
++    case RECVR_GENESIS:
++      return TRUE;
+ #elif defined MEZCAL
+   case RECVR_RX580:
+   case RECVR_SP70:
+@@ -10784,7 +10903,7 @@ S16 runtime_RTX_Device_ID( void )
+   // maxwell4/maxwell_misc.c file function get_stinger_setup()
+ 
+   {
+-    #if defined KRYPTON
++    #if defined KRYPTON || defined GENESIS
+       // Board revision >= 2 use TaiSaw filters
+       // Previous revisions use Qorvo filters
+       // These need different calibration tables and group delay
+@@ -11589,6 +11708,9 @@ BOOLEAN runtime_IsPositionMonitoringSupported( void )
+     case RECVR_BD935:
+     case RECVR_APX15V2:
+       return FALSE;
++#elif defined GENESIS
++    case RECVR_GENESIS:
++      return TRUE;
+ // iMX6 Platforms
+ #elif defined ALLOY
+     case RECVR_ALLOY:
+diff --git a/titanRtk/tn_task.cpp b/titanRtk/tn_task.cpp
+index 6957d8a5..1820e2a8 100644
+--- a/titanRtk/tn_task.cpp
++++ b/titanRtk/tn_task.cpp
+@@ -1077,7 +1077,11 @@ extern "C"
+ const CHAR* tn_SCVersion( void )
+ {
+ #ifdef GNSS_ONLY_FACTORY
++  #ifdef GENESIS
++  return "Genesis";
++  #else
+   return TRMB::Hermes::TitanEngGNSSOnly::GetTitanSourceControlVersion();
++  #endif
+ #else
+   return TRMB::Hermes::TitanEng::GetTitanSourceControlVersion();
+ #endif
